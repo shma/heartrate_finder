@@ -21,7 +21,6 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     var peripheral: CBPeripheral!
     var peripheral1: CBPeripheral!
     
-    
     var locationManager: CLLocationManager!
     
     
@@ -43,7 +42,8 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     let rateFile = "rate.txt"
     let rriFile = "rri.txt"
     let sanjikuFile = "sanjiku.txt"
-    let photoFile = "photo.txt"
+    let placeFile = "place.txt"
+    let seboneFile = "sebone.txt"
     
     let formatter = NSDateFormatter()
     let formatterDate = NSDateFormatter()
@@ -58,9 +58,33 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     // 加速度
     let manager = CMMotionManager()
     
+    // カメラ系
+    var shatterInterval = 0;
+    
+    // 音声
+    var audioRecorder: AVAudioRecorder?
+    
     override func viewDidLoad() {
         
         super.viewDidLoad()
+        
+        /// 録音可能カテゴリに設定する
+        let session = AVAudioSession.sharedInstance()
+        do {
+            try session.setCategory(AVAudioSessionCategoryPlayAndRecord)
+        } catch  {
+            // エラー処理
+            fatalError("カテゴリ設定失敗")
+        }
+        
+        // sessionのアクティブ化
+        do {
+            try session.setActive(true)
+        } catch {
+            // audio session有効化失敗時の処理
+            // (ここではエラーとして停止している）
+            fatalError("session有効化失敗")
+        }
         
         
         if CLLocationManager.locationServicesEnabled() {
@@ -68,8 +92,8 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             locationManager.delegate = self
             locationManager.startUpdatingLocation()
         }
-        formatter.dateFormat = "HH:mm:ss"
-        formatterDate.dateFormat = "yyyy_MM_dd"
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        formatterDate.dateFormat = "yyyy_MMdd"
         
         if manager.accelerometerAvailable {
             // センサーの更新間隔の指定
@@ -79,18 +103,13 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             let accelerometerHandler:CMAccelerometerHandler = {
                 [weak self] (data: CMAccelerometerData?, error: NSError?) -> Void in
                 
-                //                print("".stringByAppendingFormat("x %.4f", data!.acceleration.x))
-                //                self?.yLabel.text = "".stringByAppendingFormat("y %.4f", data!.acceleration.y)
-                //                self?.zLabel.text = "".stringByAppendingFormat("z %.4f", data!.acceleration.z)
-                
                 let now = NSDate()
                 let date = self!.formatterDate.stringFromDate(now)
                 let time = self!.formatter.stringFromDate(now)
                 
                 let sanjikuOutput = NSOutputStream(toFileAtPath: self!.documentsPath + "/" + date + "_" + self!.sanjikuFile, append: true)
                 sanjikuOutput?.open()
-                let text = time + ", \(data!.acceleration.x), \(data!.acceleration.y) , \(data!.acceleration.z)\r\n"
-                
+                let text = "[\"\(time)\", \(data!.acceleration.x), \(data!.acceleration.y) , \(data!.acceleration.z)],\r\n "
                 let cstring = text.cStringUsingEncoding(NSUTF8StringEncoding)
                 let bytes = UnsafePointer<UInt8>(cstring!)
                 let size = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding)
@@ -137,33 +156,8 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
         
         videoLayer.frame = self.view.bounds
         videoLayer.videoGravity = AVLayerVideoGravityResizeAspect
-        
-        // Viewに追加
-        //self.view.layer.addSublayer(videoLayer)
-        
         CapSession.startRunning()
         
-        /**
-         print(string)
-         
-         let hogeDic: Dictionary = ["rate" : "100", "date": string]
-         let hogeDic1: Dictionary = ["rate" : "120", "date": string]
-         
-         var partyA = Array<AnyObject>()
-         partyA.append(hogeDic)
-         partyA.append(hogeDic1)
-         // print(partyA);
-         
-         
-         NSUserDefaults.standardUserDefaults().setObject(partyA, forKey: "hogeDic")
-         NSUserDefaults.standardUserDefaults().synchronize()
-         
-         let arr: AnyObject! = NSUserDefaults.standardUserDefaults().arrayForKey("hogeDic")
-         
-         print(arr);
-         **/
-        // 通信状況を見るやーつ
-        // print(CheckReachability("shma.jp"))
     }
     
     override func didReceiveMemoryWarning() {
@@ -195,6 +189,14 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             // 接続開始
             self.centralManager.connectPeripheral(self.peripheral, options: nil)
         }
+        
+        if peripheral.name == "BLESerial2" {
+            self.peripheral1 = peripheral
+            
+            // 接続開始
+            self.centralManager.connectPeripheral(self.peripheral1, options: nil)
+        }
+        
     }
     
     // ペリフェラルへの接続が成功すると呼ばれる
@@ -210,7 +212,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
         peripheral.discoverServices(nil)
         
         
-        self.centralManager.stopScan()
+        // self.centralManager.stopScan()
     }
     
     // ペリフェラルへの接続が失敗すると呼ばれる
@@ -265,6 +267,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
         let characteristics = service.characteristics!
         
         for characteristic in characteristics {
+            print("Cha UUID : \(characteristic.UUID)")
             
             // konashi の PIO_INPUT_NOTIFICATION キャラクタリスティック
             if characteristic.UUID.isEqual(CBUUID(string: "3003")) {
@@ -279,6 +282,14 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
                     true,
                     forCharacteristic: characteristic)
             }
+            
+            if characteristic.UUID.isEqual(CBUUID(string: "2A750D7D-BD9A-928F-B744-7D5A70CEF1F9")) {
+                // 更新通知受け取りを開始する
+                peripheral.setNotifyValue(
+                    true,
+                    forCharacteristic: characteristic)
+            }
+
         }
     }
     
@@ -314,6 +325,25 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             return
         }
         
+        let now = NSDate()
+        currentDate = formatterDate.stringFromDate(now)
+        currentTime = formatter.stringFromDate(now)
+        
+        if (characteristic.UUID.isEqual(CBUUID(string: "2A750D7D-BD9A-928F-B744-7D5A70CEF1F9"))) {
+            print("sebone");
+            var aBuffer = Array<Int8>(count: 8, repeatedValue: 0)
+            characteristic.value?.getBytes(&aBuffer, length: 8)
+            print(aBuffer[0])
+            let seboneOutput = NSOutputStream(toFileAtPath: documentsPath + "/" + currentDate + "_" + seboneFile, append: true)
+            seboneOutput?.open()
+            let text = "[\"\(currentTime)\", \(aBuffer[0])],\r\n "
+            let cstring = text.cStringUsingEncoding(NSUTF8StringEncoding)
+            let bytes = UnsafePointer<UInt8>(cstring!)
+            let size = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding)
+            seboneOutput?.write(bytes, maxLength: size)
+            seboneOutput?.close()
+        }
+        
         if (characteristic.UUID.isEqual(CBUUID(string: "2A37"))) {
             
             //print("データ更新！ characteristic UUID: \(characteristic.UUID), value: \(characteristic.value)")
@@ -342,31 +372,43 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
                 if (average_rates.count == 10) {
                     average_rates.removeFirst()
                 }
-                
                 average_rates.append(average)
             }
             
             print(average_rates)
             rateNum.text = String(rate)
             
+            shatterInterval = shatterInterval + 1
+            if (shatterInterval == 10) {
+                takeStillPicture();
+                shatterInterval = 0
+            }
+
             
-            if (abs(average_rates[9] - average_rates[0]) > 10) {
+            if (abs(average_rates[9] - average_rates[0]) > 5) {
                 if (average_rates[0] > 0) {
-                    takeStillPicture();
+                    
                     average_rates = [0,0,0,0,0,0,0,0,0,0]
+                    
+                    
+                    let now = NSDate()
+                    let date = self.formatterDate.stringFromDate(now)
+                    let time = self.formatter.stringFromDate(now)
+                    let placeOutput = NSOutputStream(toFileAtPath: self.documentsPath + "/" + date + "_" + self.placeFile, append: true)
+                    placeOutput?.open()
+                    let text = "[\"\(time)\", \(self.latitude), \(self.longitude)],\r\n "
+                    let cstring = text.cStringUsingEncoding(NSUTF8StringEncoding)
+                    let bytes = UnsafePointer<UInt8>(cstring!)
+                    let size = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding)
+                    placeOutput?.write(bytes, maxLength: size)
+                    placeOutput?.close()
                 }
             }
             
             // ログ出力用の処理へ
-            let now = NSDate()
-            currentDate = formatterDate.stringFromDate(now)
-            currentTime = formatter.stringFromDate(now)
-            
-            
             let rateOutput = NSOutputStream(toFileAtPath: documentsPath + "/" + currentDate + "_" + rateFile, append: true)
             rateOutput?.open()
-            let text = currentTime + " , " + String(rate) + "\r\n"
-            
+            let text = "[\"\(currentTime)\", \(rate)],\r\n "
             var cstring = text.cStringUsingEncoding(NSUTF8StringEncoding)
             var bytes = UnsafePointer<UInt8>(cstring!)
             var size = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding)
@@ -384,12 +426,12 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
                 rri = Float(rriSec) / 1024
                 
                 let rriOutput = NSOutputStream(toFileAtPath: documentsPath + "/" + currentDate + "_" + rriFile, append: true)
-                rriOutput?.open()
-                let rriText = currentTime + " , " + String(rri) + " \r\n"
+                let rriText = "[\"\(currentTime)\", \(rri) ],\r\n"
                 
+                rriOutput?.open()
                 cstring = rriText.cStringUsingEncoding(NSUTF8StringEncoding)
                 bytes = UnsafePointer<UInt8>(cstring!)
-                size = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding)
+                size = rriText.lengthOfBytesUsingEncoding(NSUTF8StringEncoding)
                 rriOutput?.write(bytes, maxLength: size)
                 rriOutput?.close()
             }
@@ -438,13 +480,63 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
                 let newImage:UIImage = self.drawText(image)
                 
                 
-                
                 // アルバムに追加.
+                let now = NSDate()
+                let date = self.formatterDate.stringFromDate(now)
+                let time = self.formatter.stringFromDate(now)
+                
                 UIImageWriteToSavedPhotosAlbum(newImage, self, nil, nil)
                 
+                /**
+                if let photoData = UIImagePNGRepresentation(newImage) {
+                    
+                    // 保存ディレクトリ: Documents/Photo/
+                    let fileManager = NSFileManager.defaultManager()
+                    
+                    let dir = self.documentsPath + "/photo"
+                    
+                    if !fileManager.fileExistsAtPath(dir) {
+                        do {
+                            try fileManager.createDirectoryAtPath(dir, withIntermediateDirectories: true, attributes: nil)
+                        }
+                        catch {
+                            print("Unable to create directory: \(error)")
+                        }
+                    }
+                    
+                    // ファイル名: 現在日時.png
+                    let photoName = "\(NSDate().description).png"
+                    let path = dir + "/" + photoName
+                    
+                    // 保存
+                    photoData.writeToFile(path, atomically: true)
+                    /**
+                    if (photoData.writeToFile(path, atomically: true)) {
+                        // 写真表示
+                        print("Success")
+                    }
+                        // 保存エラー
+                    else {
+                        print("error writing file: \(path)")
+                    }
+                     **/
+                }
+                 **/
+                
+                
+                let placeOutput = NSOutputStream(toFileAtPath: self.documentsPath + "/" + date + "_" + self.placeFile, append: true)
+                placeOutput?.open()
+                let text = "[\"\(time)\", \(self.latitude), \(self.longitude)],\r\n "
+                let cstring = text.cStringUsingEncoding(NSUTF8StringEncoding)
+                let bytes = UnsafePointer<UInt8>(cstring!)
+                let size = text.lengthOfBytesUsingEncoding(NSUTF8StringEncoding)
+                placeOutput?.write(bytes, maxLength: size)
+                placeOutput?.close()
             })
+ 
         }
     }
+    
     
     func drawText(image :UIImage) ->UIImage
     {
@@ -507,6 +599,7 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
             print("NSJSONSerialization Error")
             return
         }
+
         session.dataTaskWithRequest(request, completionHandler: completionHandler).resume()
     }
     
@@ -522,11 +615,46 @@ class ViewController: UIViewController, CBCentralManagerDelegate, CBPeripheralDe
     }
     
     func locationManager(manager: CLLocationManager, didUpdateToLocation newLocation: CLLocation, fromLocation oldLocation: CLLocation) {
-        latitude = "".stringByAppendingFormat("%.4f", newLocation.coordinate.latitude)
-        longitude = "".stringByAppendingFormat("%.4f", newLocation.coordinate.longitude)
+        latitude = "".stringByAppendingFormat("%.5f", newLocation.coordinate.latitude)
+        longitude = "".stringByAppendingFormat("%.5f", newLocation.coordinate.longitude)
         
-        print("".stringByAppendingFormat("%.4f", newLocation.coordinate.latitude))
-        print("".stringByAppendingFormat("%.4f", newLocation.coordinate.longitude))
+        print("".stringByAppendingFormat("%.5f", newLocation.coordinate.latitude))
+        print("".stringByAppendingFormat("%.5f", newLocation.coordinate.longitude))
+    }
+    
+    
+    // 音声データの録音
+    func setupAudioRecorder() {
+        
+        // 録音用URLを設定
+        let dirURL = documentsDirectoryURL()
+        let fileName = "recording.caf"
+        let recordingsURL = dirURL.URLByAppendingPathComponent(fileName)
+        
+        // 録音設定
+        let recordSettings: [String: AnyObject] =
+            [AVEncoderAudioQualityKey: AVAudioQuality.Min.rawValue,
+             AVEncoderBitRateKey: 16,
+             AVNumberOfChannelsKey: 2,
+             AVSampleRateKey: 44100.0]
+        do {
+            audioRecorder = try AVAudioRecorder(URL: recordingsURL, settings: recordSettings)
+        } catch {
+            audioRecorder = nil
+        }
+        
+    }
+    
+    /// DocumentsのURLを取得
+    func documentsDirectoryURL() -> NSURL {
+    let urls = NSFileManager.defaultManager().URLsForDirectory(NSSearchPathDirectory.DocumentDirectory, inDomains: NSSearchPathDomainMask.UserDomainMask)
+    
+    if urls.isEmpty {
+    //
+    fatalError("URLs for directory are empty.")
+    }
+    
+    return urls[0]
     }
     
 }
